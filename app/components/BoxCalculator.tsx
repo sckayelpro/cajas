@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { 
   Box, Ruler, Trash2, RotateCw, Copy, ChevronsRight, 
   ChevronsDown, Eraser, Save, FolderOpen, Edit2, Plus, Info, Layout, Scissors,
-  Search, Cookie, Coffee, CupSoda, Sandwich, Dessert, Circle, Hash, Layers
+  Search, Cookie, Coffee, CupSoda, Sandwich, Dessert, Circle, Hash, Layers, Banknote
 } from "lucide-react";
 
 // --- TIPOS ---
@@ -55,6 +55,7 @@ interface CalculationResults {
 // --- CONSTANTES ---
 const SHEET_W = 110;
 const SHEET_L = 77;
+const SHEET_PRICE = 6; // Precio en Bs.
 
 const ICON_MAP: Record<string, any> = {
   donut: Circle,
@@ -116,7 +117,7 @@ function SheetLayoutView({ pw, pl, colorClass }: { pw: number, pl: number, color
       <div className="flex justify-between items-center mb-3">
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${colorClass.replace('text-', 'bg-')}`}></div>
-          <span className="text-[10px] font-black text-white uppercase tracking-widest">Pliego Optimizado (110x77)</span>
+          <span className="text-[10px] font-black text-white uppercase tracking-widest">Pliego (110x77)</span>
         </div>
         <span className="text-[10px] font-black text-green-400 bg-green-400/10 px-2 py-0.5 rounded">{opt.efficiency.toFixed(1)}% USO</span>
       </div>
@@ -187,7 +188,7 @@ export function BoxCalculator() {
   const [heightMargin, setHeightMargin] = useState("1.5");
   const [lidHeight, setLidHeight] = useState("3");
   const [lidMargin, setLidMargin] = useState("0.3");
-  const [productionQuantity, setProductionQuantity] = useState(50); // Nuevo estado
+  const [productionQuantity, setProductionQuantity] = useState(50);
   
   const [newProduct, setNewProduct] = useState({ id: "", name: "", width: "", length: "", height: "", icon: "default" });
   const [isEditing, setIsEditing] = useState(false);
@@ -214,28 +215,37 @@ export function BoxCalculator() {
     localStorage.setItem("saved_boxes_v3", JSON.stringify(savedBoxes));
   }, [productTemplates, savedBoxes]);
 
-  // Buscador filtrado
   const filteredProducts = useMemo(() => {
     return productTemplates.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [productTemplates, searchTerm]);
-
-  // Motor de Cálculo de Dimensiones
-  const { colWidths, rowLengths, totalInnerWidth, totalInnerLength, maxHeight } = useMemo(() => {
-    const widths = Array(cols).fill(0);
-    const lengths = Array(rows).fill(0);
-    placedProducts.forEach(p => {
-      const wPerCol = p.template.width / p.colSpan;
-      for (let i = 0; i < p.colSpan; i++) if (p.col + i < cols) widths[p.col + i] = Math.max(widths[p.col + i], wPerCol);
-      const lPerRow = p.template.length / p.rowSpan;
-      for (let i = 0; i < p.rowSpan; i++) if (p.row + i < rows) lengths[p.row + i] = Math.max(lengths[p.row + i], lPerRow);
-    });
-    return {
-      colWidths: widths, rowLengths: lengths,
-      totalInnerWidth: widths.reduce((a, b) => a + b, 0),
-      totalInnerLength: lengths.reduce((a, b) => a + b, 0),
-      maxHeight: Math.max(0, ...placedProducts.map(p => p.template.height), 0)
-    };
-  }, [placedProducts, rows, cols]);
+// CARGAR CAJA GUARDADA
+const loadBox = (box: SavedBox) => {
+  setRows(box.rows);
+  setCols(box.cols);
+  setPlacedProducts(box.placedProducts);
+  setBoxType(box.boxType);
+  setHeightMargin(box.heightMargin);
+  setLidHeight(box.lidHeight);
+  setLidMargin(box.lidMargin);
+  setCurrentBoxName(box.name);
+};
+ // CÁLCULOS TÉCNICOS
+ const { colWidths, rowLengths, totalInnerWidth, totalInnerLength, maxHeight } = useMemo(() => {
+  const widths = Array(cols).fill(0);
+  const lengths = Array(rows).fill(0);
+  placedProducts.forEach(p => {
+    const wPerCol = p.template.width / p.colSpan;
+    for (let i = 0; i < p.colSpan; i++) if (p.col + i < cols) widths[p.col + i] = Math.max(widths[p.col + i], wPerCol);
+    const lPerRow = p.template.length / p.rowSpan;
+    for (let i = 0; i < p.rowSpan; i++) if (p.row + i < rows) lengths[p.row + i] = Math.max(lengths[p.row + i], lPerRow);
+  });
+  return {
+    colWidths: widths, rowLengths: lengths,
+    totalInnerWidth: widths.reduce((a, b) => a + b, 0),
+    totalInnerLength: lengths.reduce((a, b) => a + b, 0),
+    maxHeight: Math.max(0, ...placedProducts.map(p => p.template.height), 0)
+  };
+}, [placedProducts, rows, cols]);
 
   useEffect(() => {
     if (placedProducts.length === 0) { setResults(null); return; }
@@ -254,38 +264,40 @@ export function BoxCalculator() {
     setResults({ innerWidth: totalInnerWidth, innerLength: totalInnerLength, innerHeight: iH, baseCutWidth: bW, baseCutLength: bL, lidCutWidth: lW, lidCutLength: lL, internalLidCutWidth: intLW, internalLidCutLength: intLL });
   }, [totalInnerWidth, totalInnerLength, maxHeight, boxType, heightMargin, lidHeight, lidMargin, placedProducts]);
 
-  // LÓGICA DE PRODUCCIÓN TOTAL
+  // LÓGICA DE PRODUCCIÓN Y COSTOS
   const productionSummary = useMemo(() => {
     if (!results) return null;
 
-    // Cálculo Bases
     const baseOpt = getOptimization(results.baseCutWidth, results.baseCutLength);
     const basesPerSheet = baseOpt?.bestTotal || 0;
     const sheetsForBases = basesPerSheet > 0 ? Math.ceil(productionQuantity / basesPerSheet) : 0;
+    const unitCostBase = basesPerSheet > 0 ? SHEET_PRICE / basesPerSheet : 0;
 
-    // Cálculo Tapas (Estándar o Interna)
     let lidsPerSheet = 0;
     let sheetsForLids = 0;
+    let unitCostLid = 0;
     let labelTapa = "Tapa";
 
     if (boxType === "with-lid" && results.lidCutWidth && results.lidCutLength) {
       const lidOpt = getOptimization(results.lidCutWidth, results.lidCutLength);
       lidsPerSheet = lidOpt?.bestTotal || 0;
       sheetsForLids = lidsPerSheet > 0 ? Math.ceil(productionQuantity / lidsPerSheet) : 0;
+      unitCostLid = lidsPerSheet > 0 ? SHEET_PRICE / lidsPerSheet : 0;
     } else if (boxType === "internal-half-lid" && results.internalLidCutWidth && results.internalLidCutLength) {
       const lidOpt = getOptimization(results.internalLidCutWidth, results.internalLidCutLength);
       lidsPerSheet = lidOpt?.bestTotal || 0;
       sheetsForLids = lidsPerSheet > 0 ? Math.ceil(productionQuantity / lidsPerSheet) : 0;
+      unitCostLid = lidsPerSheet > 0 ? SHEET_PRICE / lidsPerSheet : 0;
       labelTapa = "Tapa Interna";
     }
 
+    const totalBoxCost = unitCostBase + unitCostLid;
+    const totalOrderCost = (sheetsForBases + sheetsForLids) * SHEET_PRICE;
+
     return {
-      basesPerSheet,
-      sheetsForBases,
-      lidsPerSheet,
-      sheetsForLids,
-      labelTapa,
-      totalSheets: sheetsForBases + sheetsForLids
+      basesPerSheet, sheetsForBases, unitCostBase,
+      lidsPerSheet, sheetsForLids, unitCostLid, labelTapa,
+      totalBoxCost, totalOrderCost, totalSheets: sheetsForBases + sheetsForLids
     };
   }, [results, productionQuantity, boxType]);
 
@@ -316,54 +328,71 @@ export function BoxCalculator() {
           }} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all"><Save size={16} /> GUARDAR</button>
         </div>
       </header>
-
+{/* SECCIÓN: DISEÑOS GUARDADOS (CORREGIDO) */}
+<div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 shadow-sm">
+            <h2 className="text-xs font-black uppercase text-blue-500 mb-4 tracking-widest flex items-center gap-2"><FolderOpen size={16}/> Mis Diseños Guardados</h2>
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-2 scrollbar-hide">
+              {savedBoxes.length === 0 && <p className="text-[10px] text-zinc-600 italic text-center py-4">No hay diseños aún</p>}
+              {savedBoxes.map(box => (
+                <div key={box.id} className="flex items-center justify-between p-3 bg-black/40 rounded-xl border border-zinc-800 group hover:border-blue-500/50 transition-all">
+                  <button onClick={() => loadBox(box)} className="text-[11px] font-black uppercase truncate text-left flex-1">{box.name}</button>
+                  <button onClick={() => setSavedBoxes(prev => prev.filter(b => b.id !== box.id))} className="text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14}/></button>
+                </div>
+              ))}
+            </div>
+          </div>
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         <div className="xl:col-span-4 space-y-6">
-          {/* CALCULADORA DE PLIEGOS (PRODUCCIÓN) */}
+          {/* CALCULADORA DE PRODUCCIÓN Y COSTOS */}
           {results && productionSummary && (
-            <div className="bg-blue-600 p-6 rounded-[2rem] shadow-xl shadow-blue-900/20 border border-blue-400/30 space-y-4 animate-in zoom-in-95">
+            <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-[2rem] shadow-2xl border border-blue-400/30 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xs font-black uppercase text-white tracking-[0.2em] flex items-center gap-2"><Layers size={18} /> Calculadora de Producción</h2>
+                <h2 className="text-[10px] font-black uppercase text-white tracking-[0.2em] flex items-center gap-2"><Banknote size={18} /> Resumen Financiero</h2>
+                <span className="text-[10px] font-black bg-black/20 px-2 py-1 rounded">PLIEGO: 6 Bs.</span>
               </div>
               
               <div className="bg-black/20 p-4 rounded-2xl space-y-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-blue-100 opacity-70">Cantidad de cajas a fabricar</label>
-                  <div className="flex items-center gap-3">
-                     <Hash size={18} className="text-white opacity-50"/>
-                     <input 
-                      type="number" 
-                      value={productionQuantity} 
-                      onChange={e => setProductionQuantity(Math.max(1, Number(e.target.value)))} 
-                      className="bg-transparent text-2xl font-black outline-none w-full text-white"
-                     />
-                  </div>
+                  <label className="text-[9px] font-black uppercase text-blue-100 opacity-60">Cantidad a producir</label>
+                  <input type="number" value={productionQuantity} onChange={e => setProductionQuantity(Math.max(1, Number(e.target.value)))} className="bg-transparent text-2xl font-black outline-none w-full text-white" />
                 </div>
               </div>
 
-              <div className="space-y-2 pt-2">
-                <div className="flex justify-between text-[11px] font-bold text-blue-100">
-                  <span>Pliegos para Bases:</span>
-                  <span className="font-mono">{productionSummary.sheetsForBases} ({productionSummary.basesPerSheet}/pliego)</span>
-                </div>
-                {productionSummary.sheetsForLids > 0 && (
-                  <div className="flex justify-between text-[11px] font-bold text-blue-100">
-                    <span>Pliegos para {productionSummary.labelTapa}:</span>
-                    <span className="font-mono">{productionSummary.sheetsForLids} ({productionSummary.lidsPerSheet}/pliego)</span>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/10">
+                  <div className="space-y-0.5">
+                    <p className="text-[9px] font-black uppercase text-blue-200">Costo Base Unit.</p>
+                    <p className="text-xs font-black">{productionSummary.unitCostBase.toFixed(2)} Bs.</p>
                   </div>
-                )}
-                <div className="h-px bg-white/20 my-2" />
-                <div className="flex justify-between items-end">
-                  <span className="text-xs font-black uppercase text-white">Total Pliegos Requeridos:</span>
-                  <span className="text-3xl font-black text-white">{productionSummary.totalSheets}</span>
+                  {productionSummary.unitCostLid > 0 && (
+                    <div className="space-y-0.5 text-right border-l border-white/10 pl-4">
+                      <p className="text-[9px] font-black uppercase text-blue-200">Costo {productionSummary.labelTapa} Unit.</p>
+                      <p className="text-xs font-black">{productionSummary.unitCostLid.toFixed(2)} Bs.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center px-2">
+                  <span className="text-[10px] font-black uppercase text-white/70">Costo Material p/ Caja:</span>
+                  <span className="text-lg font-black text-white">{productionSummary.totalBoxCost.toFixed(2)} Bs.</span>
+                </div>
+
+                <div className="h-px bg-white/10 my-1" />
+
+                <div className="bg-white text-blue-900 p-4 rounded-2xl flex justify-between items-center shadow-lg">
+                  <div className="space-y-0.5">
+                    <p className="text-[9px] font-black uppercase opacity-60">Total Inversión Material</p>
+                    <p className="text-[10px] font-bold">{productionSummary.totalSheets} Pliegos necesarios</p>
+                  </div>
+                  <p className="text-2xl font-black">{productionSummary.totalOrderCost.toFixed(1)} <span className="text-xs uppercase">Bs.</span></p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* BIBLIOTECA CON BUSCADOR */}
+          {/* BIBLIOTECA - SE MANTIENE IGUAL */}
           <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 shadow-sm space-y-4">
-            <h2 className="text-xs font-black uppercase text-blue-500 tracking-[0.2em] flex items-center gap-2"><FolderOpen size={16} /> Biblioteca de Productos</h2>
+            <h2 className="text-xs font-black uppercase text-blue-500 tracking-[0.2em] flex items-center gap-2"><FolderOpen size={16} /> Biblioteca</h2>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
               <input type="text" placeholder="BUSCAR..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-black border border-zinc-800 rounded-xl text-xs font-bold outline-none focus:border-blue-600 transition-all uppercase" />
@@ -385,7 +414,7 @@ export function BoxCalculator() {
 
           {/* FORMULARIO NUEVO PRODUCTO */}
           <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 shadow-sm">
-            <h2 className="text-xs font-black uppercase text-zinc-500 mb-6 tracking-[0.2em]">Nuevo Producto</h2>
+            <h2 className="text-xs font-black uppercase text-zinc-500 mb-6 tracking-[0.2em]">Añadir Producto</h2>
             <div className="space-y-4">
               <input type="text" placeholder="NOMBRE..." value={newProduct.name} onChange={e => setNewProduct({ ...newProduct, name: e.target.value })} className="w-full p-4 rounded-2xl bg-black border border-zinc-800 text-sm font-bold outline-none uppercase" />
               <div className="grid grid-cols-3 gap-3">
@@ -399,25 +428,18 @@ export function BoxCalculator() {
                   </div>
                 ))}
               </div>
-              <div className="space-y-2">
-                <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest block text-center">Icono</span>
-                <select value={newProduct.icon} onChange={e => setNewProduct({ ...newProduct, icon: e.target.value })} className="w-full p-3 bg-black border border-zinc-800 rounded-xl text-xs font-bold outline-none uppercase">
-                  {Object.keys(ICON_MAP).map(iconName => <option key={iconName} value={iconName}>{iconName.toUpperCase()}</option>)}
-                </select>
-              </div>
               <button onClick={() => {
                 if (!newProduct.name || !newProduct.width) return;
                 const templateData = { id: isEditing ? newProduct.id : Date.now().toString(), name: newProduct.name, width: parseFloat(newProduct.width), length: parseFloat(newProduct.length), height: parseFloat(newProduct.height), icon: newProduct.icon };
                 isEditing ? setProductTemplates(prev => prev.map(t => t.id === templateData.id ? templateData : t)) : setProductTemplates([...productTemplates, templateData]);
                 setNewProduct({ id: "", name: "", width: "", length: "", height: "", icon: "default" }); setIsEditing(false);
-              }} className="w-full bg-zinc-100 text-black p-4 rounded-2xl text-xs font-black uppercase tracking-[0.15em] hover:bg-white transition-all shadow-lg">{isEditing ? "ACTUALIZAR" : "AÑADIR"}</button>
+              }} className="w-full bg-zinc-100 text-black p-4 rounded-2xl text-xs font-black uppercase tracking-[0.15em] hover:bg-white transition-all shadow-lg">AÑADIR A BIBLIOTECA</button>
             </div>
           </div>
         </div>
 
         <div className="xl:col-span-8 space-y-6">
           <div className="bg-zinc-900 p-8 rounded-[2rem] border border-zinc-800 shadow-2xl relative overflow-hidden">
-            {/* Cabecera del Grid */}
             <div className="flex flex-wrap justify-between items-end mb-8 gap-6">
               <div className="flex gap-8">
                 <div className="space-y-2">
@@ -428,20 +450,10 @@ export function BoxCalculator() {
                     <input type="number" value={cols} onChange={e => setCols(Number(e.target.value))} className="w-8 bg-transparent text-center text-xs outline-none text-blue-500" />
                   </div>
                 </div>
-                {selectedTemplate && (
-                  <div className="space-y-2 animate-in slide-in-from-left-4 font-black">
-                    <p className="text-[9px] uppercase text-blue-500 tracking-[0.2em]">Ocupación: {selectedTemplate.name}</p>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 text-[10px] bg-black p-1 px-3 rounded-xl border border-zinc-800"><ChevronsRight size={14} className="text-zinc-500" /> <input type="number" min="1" value={colSpan} onChange={e => setColSpan(Number(e.target.value))} className="w-6 bg-transparent text-center" /></label>
-                      <label className="flex items-center gap-2 text-[10px] bg-black p-1 px-3 rounded-xl border border-zinc-800"><ChevronsDown size={14} className="text-zinc-500" /> <input type="number" min="1" value={rowSpan} onChange={e => setRowSpan(Number(e.target.value))} className="w-6 bg-transparent text-center" /></label>
-                    </div>
-                  </div>
-                )}
               </div>
-              <button onClick={() => setPlacedProducts([])} className="text-[10px] font-black text-red-500 uppercase tracking-widest flex items-center gap-2 hover:bg-red-500/10 px-4 py-2 rounded-xl transition-all border border-transparent hover:border-red-500/20"><Eraser size={14} /> Limpiar</button>
+              <button onClick={() => setPlacedProducts([])} className="text-[10px] font-black text-red-500 uppercase tracking-widest flex items-center gap-2 hover:bg-red-500/10 px-4 py-2 rounded-xl transition-all border border-transparent hover:border-red-500/20"><Eraser size={14} /> Limpiar Lienzo</button>
             </div>
 
-            {/* Grid de Diseño */}
             <div className="grid gap-1.5 bg-black p-2 rounded-3xl overflow-auto min-h-[300px]"
               style={{ gridTemplateColumns: colWidths.map(w => `${Math.max(w, 5) * SCALE}px`).join(' '), gridTemplateRows: rowLengths.map(l => `${Math.max(l, 5) * SCALE}px`).join(' '), width: 'fit-content', minWidth: '100%' }}>
               {Array.from({ length: rows * cols }).map((_, i) => {
@@ -453,13 +465,11 @@ export function BoxCalculator() {
                   style={{ gridRowStart: p.row + 1, gridColumnStart: p.col + 1, gridRowEnd: `span ${p.rowSpan}`, gridColumnEnd: `span ${p.colSpan}` }}>
                   <ProductIcon name={p.template.icon} size={20} className="mb-1 opacity-80 group-hover:scale-110 transition-transform" />
                   <p className="font-black text-[9px] uppercase leading-none truncate w-full text-center">{p.template.name}</p>
-                  <p className="text-[7px] font-bold mt-1 opacity-70">{p.template.width}x{p.template.length}</p>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Resultados e Ingeniería */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="bg-zinc-900 p-8 rounded-[2rem] border border-zinc-800 shadow-xl space-y-6">
               <h3 className="font-black text-xs uppercase tracking-[0.2em] text-zinc-600 flex items-center gap-3"><Ruler size={18} className="text-blue-500" /> Ingeniería</h3>
@@ -472,12 +482,12 @@ export function BoxCalculator() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-zinc-500 uppercase text-center block tracking-widest">Margen Alto</label>
-                    <input type="number" value={heightMargin} onChange={e => setHeightMargin(e.target.value)} className="w-full p-4 bg-black rounded-2xl text-sm font-black border border-zinc-800 text-center outline-none" />
+                    <input type="number" value={heightMargin} onChange={e => setHeightMargin(e.target.value)} className="w-full p-4 bg-black rounded-2xl text-sm font-black border border-zinc-800 text-center" />
                   </div>
                   {boxType === 'with-lid' && (
                     <div className="space-y-2">
                       <label className="text-[10px] font-black text-zinc-500 uppercase text-center block tracking-widest">Alto Tapa</label>
-                      <input type="number" value={lidHeight} onChange={e => setLidHeight(e.target.value)} className="w-full p-4 bg-black rounded-2xl text-sm font-black border border-zinc-800 text-center outline-none" />
+                      <input type="number" value={lidHeight} onChange={e => setLidHeight(e.target.value)} className="w-full p-4 bg-black rounded-2xl text-sm font-black border border-zinc-800 text-center" />
                     </div>
                   )}
                 </div>
@@ -486,25 +496,19 @@ export function BoxCalculator() {
 
             <div className="bg-zinc-900 p-8 rounded-[2rem] shadow-2xl border border-zinc-800">
               {results ? (
-                <>
-                  <div className="border-b border-zinc-800 pb-6 mb-6">
-                    <p className="text-[10px] uppercase font-black text-zinc-500 tracking-widest mb-2">Caja Útil</p>
-                    <p className="font-mono text-2xl font-black leading-none">{results.innerWidth.toFixed(1)} × {results.innerLength.toFixed(1)} × {results.innerHeight.toFixed(1)} <span className="text-xs text-blue-500">CM</span></p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-6 overflow-y-auto max-h-[500px] pr-2 scrollbar-hide">
-                    <PlanchaDiagram width={results.innerWidth} length={results.innerLength} flap={results.innerHeight} label="Corte Base" colorClass="text-blue-500" />
-                    {(boxType === 'with-lid') && (
-                      <PlanchaDiagram width={results.innerWidth + parseFloat(lidMargin)} length={results.innerLength + parseFloat(lidMargin)} flap={parseFloat(lidHeight)} label="Corte Tapa" colorClass="text-purple-500" />
-                    )}
-                    {(boxType === 'internal-half-lid') && (
-                      <PlanchaDiagram width={results.innerWidth - 0.2} length={results.innerLength - 0.2} flap={results.innerHeight - 0.1} label="Corte Tapa Interna" colorClass="text-emerald-500" />
-                    )}
-                  </div>
-                </>
+                <div className="grid grid-cols-1 gap-6 overflow-y-auto max-h-[500px] pr-2 scrollbar-hide">
+                  <PlanchaDiagram width={results.innerWidth} length={results.innerLength} flap={results.innerHeight} label="Base" colorClass="text-blue-500" />
+                  {boxType === 'with-lid' && results.lidCutWidth && (
+                    <PlanchaDiagram width={results.innerWidth + parseFloat(lidMargin)} length={results.innerLength + parseFloat(lidMargin)} flap={parseFloat(lidHeight)} label="Tapa" colorClass="text-purple-500" />
+                  )}
+                  {boxType === 'internal-half-lid' && results.internalLidCutWidth && (
+                    <PlanchaDiagram width={results.innerWidth - 0.2} length={results.innerLength - 0.2} flap={results.innerHeight - 0.1} label="Tapa Interna" colorClass="text-emerald-500" />
+                  )}
+                </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center opacity-20 py-20 gap-4">
                   <Layout size={60} className="text-blue-600 animate-pulse" />
-                  <p className="font-black uppercase tracking-widest text-xs">Sin diseño</p>
+                  <p className="font-black uppercase tracking-widest text-xs text-center">Sin diseño para procesar</p>
                 </div>
               )}
             </div>
