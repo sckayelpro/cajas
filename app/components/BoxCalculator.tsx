@@ -5,7 +5,7 @@ import {
   Box, Ruler, Trash2, Save, FolderOpen, ChevronsRight, 
   ChevronsDown, Eraser, Layers, Scissors, Search,
   Cookie, Coffee, CupSoda, Sandwich, Dessert, Circle, Hash, Banknote,
-  Plus, MousePointer, CheckCircle2, LayoutTemplate, Edit2, Loader2
+  Plus, MousePointer, ShoppingCart, CheckCircle2, LayoutTemplate, Edit2, Loader2
 } from "lucide-react";
 
 // --- IMPORTACIONES DE FIREBASE ---
