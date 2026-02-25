@@ -159,7 +159,7 @@ export function BoxCalculator() {
   const [boxParts, setBoxParts] = useState<BoxPartConfig[]>([ { id: 'base-initial', type: 'BASE', name: 'Base Estuche', customMargin: 1.5, targetProductIds: [] } ]);
   const [selectionMode, setSelectionMode] = useState<{ active: boolean, partId: string | null }>({ active: false, partId: null });
 
-  const [productionQuantity, setProductionQuantity] = useState(50);
+  const [productionQuantity, setProductionQuantity] = useState(10);
   const [newProduct, setNewProduct] = useState({ id: "", name: "", width: "", length: "", height: "", icon: "default" });
   const [isEditingProduct, setIsEditingProduct] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ProductTemplate | null>(null);
