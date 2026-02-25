@@ -5,7 +5,7 @@ import {
   Box, Ruler, Trash2, Save, FolderOpen, ChevronsRight, 
   ChevronsDown, Eraser, Layers, Scissors, Search,
   Cookie, Coffee, CupSoda, Sandwich, Dessert, Circle, Hash, Banknote,
-  Plus, MousePointer, ShoppingCart, CheckCircle2, LayoutTemplate, Edit2, Loader2
+  Plus, MousePointer, CheckCircle2, LayoutTemplate, Edit2, Loader2
 } from "lucide-react";
 
 // --- IMPORTACIONES DE FIREBASE ---
@@ -16,7 +16,6 @@ import { collection, getDocs, addDoc, deleteDoc, doc, updateDoc } from "firebase
 interface Product { id: string; name: string; width: number; length: number; height: number; icon?: string; }
 type ProductTemplate = Product;
 interface PlacedProduct { instanceId: string; template: ProductTemplate; row: number; col: number; rowSpan: number; colSpan: number; }
-// 1. AÑADIMOS 'REINFORCEMENT' A LOS TIPOS
 export type PartType = 'BASE' | 'FULL_LID' | 'INTERNAL_LID' | 'HOLDER' | 'HANDLE' | 'REINFORCEMENT';
 
 export interface BoxPartConfig {
@@ -32,7 +31,6 @@ interface CalculationResults { innerWidth: number; innerLength: number; innerHei
 const SHEET_W = 110;
 const SHEET_L = 77;
 const ICON_MAP: Record<string, any> = { donut: Circle, dessert: Dessert, coffee: Coffee, cookie: Cookie, juice: CupSoda, sandwich: Sandwich, default: Box };
-// 2. AÑADIMOS EL COLOR PARA EL REFUERZO
 const PART_COLORS: Record<PartType, string> = { BASE: 'text-blue-500', FULL_LID: 'text-purple-500', INTERNAL_LID: 'text-emerald-500', HOLDER: 'text-amber-500', HANDLE: 'text-pink-500', REINFORCEMENT: 'text-cyan-500' };
 
 // --- COMPONENTES AUXILIARES ---
@@ -103,7 +101,6 @@ function PlanchaDiagram({ part }: { part: CutResult }) {
       </div>
       
       <svg viewBox={`-60 -20 ${(pw * viewScale) + 80} ${(pl * viewScale) + 60}`} className={`w-full max-w-[280px] mx-auto h-auto ${colorClass} fill-current`}>
-        {/* Cuadrados de opacidad de fondo */}
         <g className="opacity-30">
           {!isStrip && flap > 0 ? (
             <>
@@ -116,56 +113,23 @@ function PlanchaDiagram({ part }: { part: CutResult }) {
           ) : ( <rect x={0} y={0} width={pw * viewScale} height={pl * viewScale} /> )}
         </g>
         
-        {/* Líneas de trazado */}
         <g className="fill-none stroke-white stroke-[0.8] opacity-60">
           {!isStrip && flap > 0 && <rect x={flap * viewScale} y={flap * viewScale} width={width * viewScale} height={length * viewScale} />}
           <rect x={0} y={0} width={pw * viewScale} height={pl * viewScale} />
         </g>
         
-        {/* Medidas Exteriores (Corte Total) */}
         <text x={-25} y={(pl * viewScale) / 2} transform={`rotate(-90, -25, ${(pl * viewScale) / 2})`} fill="white" className="font-mono font-black" style={{ fontSize: '16px' }} textAnchor="middle">{pl.toFixed(1)}</text>
         <text x={(pw * viewScale) / 2} y={(pl * viewScale) + 40} fill="white" className="font-mono font-black" style={{ fontSize: '16px' }} textAnchor="middle">{pw.toFixed(1)}</text>
 
-        {/* NUEVO: Medidas Interiores y de Pestañas (Trazado de doblez) */}
         {!isStrip && flap > 0 && (
           <>
-            {/* Medida Central (Base útil) */}
-            <text 
-              x={(flap + width / 2) * viewScale} 
-              y={(flap + length / 2) * viewScale} 
-              fill="white" 
-              className="font-mono font-bold opacity-90" 
-              style={{ fontSize: '8px' }} 
-              textAnchor="middle" 
-              dominantBaseline="middle"
-            >
+            <text x={(flap + width / 2) * viewScale} y={(flap + length / 2) * viewScale} fill="white" className="font-mono font-bold opacity-90" style={{ fontSize: '8px' }} textAnchor="middle" dominantBaseline="middle">
               {width.toFixed(1)} × {length.toFixed(1)}
             </text>
-
-            {/* Pestaña Superior (Alto de la caja/tapa) */}
-            <text 
-              x={(flap + width / 2) * viewScale} 
-              y={(flap / 2) * viewScale} 
-              fill="white" 
-              className="font-mono font-bold opacity-80" 
-              style={{ fontSize: '8px' }} 
-              textAnchor="middle" 
-              dominantBaseline="middle"
-            >
+            <text x={(flap + width / 2) * viewScale} y={(flap / 2) * viewScale} fill="white" className="font-mono font-bold opacity-80" style={{ fontSize: '8px' }} textAnchor="middle" dominantBaseline="middle">
               {flap.toFixed(1)}
             </text>
-
-            {/* Pestaña Izquierda (Alto de la caja/tapa) */}
-            <text 
-              x={(flap / 2) * viewScale} 
-              y={(flap + length / 2) * viewScale} 
-              transform={`rotate(-90, ${(flap / 2) * viewScale}, ${(flap + length / 2) * viewScale})`}
-              fill="white" 
-              className="font-mono font-bold opacity-80" 
-              style={{ fontSize: '8px' }} 
-              textAnchor="middle" 
-              dominantBaseline="middle"
-            >
+            <text x={(flap / 2) * viewScale} y={(flap + length / 2) * viewScale} transform={`rotate(-90, ${(flap / 2) * viewScale}, ${(flap + length / 2) * viewScale})`} fill="white" className="font-mono font-bold opacity-80" style={{ fontSize: '8px' }} textAnchor="middle" dominantBaseline="middle">
               {flap.toFixed(1)}
             </text>
           </>
@@ -181,7 +145,6 @@ function PlanchaDiagram({ part }: { part: CutResult }) {
 export function BoxCalculator() {
   const SCALE = 8;
 
-  // Estados
   const [loadingDb, setLoadingDb] = useState(true);
   const [productTemplates, setProductTemplates] = useState<ProductTemplate[]>([]);
   const [savedBoxes, setSavedBoxes] = useState<SavedBox[]>([]);
@@ -205,7 +168,6 @@ export function BoxCalculator() {
   const [results, setResults] = useState<CalculationResults | null>(null);
   const [sheetPrice, setSheetPrice] = useState(6);
 
-  // Cargar datos desde Firestore al iniciar
   useEffect(() => {
     const fetchFirestoreData = async () => {
       try {
@@ -227,12 +189,9 @@ export function BoxCalculator() {
 
   const filteredProducts = useMemo(() => productTemplates.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase())), [productTemplates, searchTerm]);
 
-  // --- CRUD CAJAS ---
   const handleSaveBox = async () => {
     if (!currentBoxName) return alert("Nombra el diseño");
-    
     const boxData = { name: currentBoxName, rows, cols, placedProducts, boxParts };
-    
     try {
       if (currentBoxId) {
         await updateDoc(doc(db, "boxes", currentBoxId), boxData);
@@ -270,12 +229,9 @@ export function BoxCalculator() {
     setSelectionMode({ active: false, partId: null });
   };
 
-  // --- CRUD PRODUCTOS ---
   const handleSaveProduct = async () => {
     if (!newProduct.name || !newProduct.width) return;
-    
     const productData = { name: newProduct.name, width: parseFloat(newProduct.width), length: parseFloat(newProduct.length), height: parseFloat(newProduct.height), icon: newProduct.icon };
-    
     try {
       if (isEditingProduct && newProduct.id) {
         await updateDoc(doc(db, "products", newProduct.id), productData);
@@ -309,8 +265,9 @@ export function BoxCalculator() {
     setIsEditingProduct(true);
   };
 
-  // --- MOTOR DE CÁLCULO ---
+  // --- MOTOR DE CÁLCULO FÍSICO CORREGIDO ---
   const { colWidths, rowLengths, totalInnerWidth, totalInnerLength, maxHeight } = useMemo(() => {
+    // 1. Cálculo de pistas para el grid visual
     const widths = Array(cols).fill(0); const lengths = Array(rows).fill(0);
     placedProducts.forEach(p => {
       const wPerCol = p.template.width / p.colSpan;
@@ -318,7 +275,33 @@ export function BoxCalculator() {
       const lPerRow = p.template.length / p.rowSpan;
       for (let i = 0; i < p.rowSpan; i++) if (p.row + i < rows) lengths[p.row + i] = Math.max(lengths[p.row + i], lPerRow);
     });
-    return { colWidths: widths, rowLengths: lengths, totalInnerWidth: widths.reduce((a, b) => a + b, 0), totalInnerLength: lengths.reduce((a, b) => a + b, 0), maxHeight: Math.max(0, ...placedProducts.map(p => p.template.height), 0) };
+
+    // 2. Cálculo matemático estricto de la Caja Fáctica (sin superponer anchos/largos innecesarios)
+    let maxPhysicalLength = 0;
+    for (let c = 0; c < cols; c++) {
+      let colSum = 0;
+      placedProducts.forEach(p => {
+        if (c >= p.col && c < p.col + p.colSpan) colSum += p.template.length; 
+      });
+      if (colSum > maxPhysicalLength) maxPhysicalLength = colSum;
+    }
+
+    let maxPhysicalWidth = 0;
+    for (let r = 0; r < rows; r++) {
+      let rowSum = 0;
+      placedProducts.forEach(p => {
+        if (r >= p.row && r < p.row + p.rowSpan) rowSum += p.template.width;
+      });
+      if (rowSum > maxPhysicalWidth) maxPhysicalWidth = rowSum;
+    }
+
+    return { 
+      colWidths: widths, 
+      rowLengths: lengths, 
+      totalInnerWidth: maxPhysicalWidth, 
+      totalInnerLength: maxPhysicalLength, 
+      maxHeight: Math.max(0, ...placedProducts.map(p => p.template.height), 0) 
+    };
   }, [placedProducts, rows, cols]);
 
   useEffect(() => {
@@ -338,11 +321,22 @@ export function BoxCalculator() {
       else if (part.type === 'INTERNAL_LID') {
         const targets = placedProducts.filter(p => part.targetProductIds.includes(p.instanceId));
         let boxW = totalInnerWidth;
+        
+        // Lógica corregida para el ancho de la Tapa Interna
         if (targets.length > 0) {
-          const targetCols = new Set(targets.flatMap(t => Array.from({length: t.colSpan}, (_, i) => t.col + i)));
-          boxW = Array.from(targetCols).reduce((sum, c) => sum + (colWidths[c] || 0), 0);
+          let maxTargetWidth = 0;
+          for (let r = 0; r < rows; r++) {
+            let rowSum = 0;
+            targets.forEach(p => {
+              if (r >= p.row && r < p.row + p.rowSpan) rowSum += p.template.width;
+            });
+            if (rowSum > maxTargetWidth) maxTargetWidth = rowSum;
+          }
+          boxW = maxTargetWidth;
         }
-        const cutL = totalInnerLength - 0.2; const flap = innerHeight - 0.1;
+
+        const cutL = totalInnerLength - 0.2; 
+        const flap = innerHeight - 0.1;
         partsToCut.push({ partId: part.id, name: part.name, type: part.type, cutWidth: boxW + 2 * flap, cutLength: cutL + 2 * flap, flapSize: flap, colorClass: PART_COLORS[part.type] });
       }
       else if (part.type === 'HOLDER') {
@@ -352,18 +346,9 @@ export function BoxCalculator() {
       else if (part.type === 'HANDLE') {
         partsToCut.push({ partId: part.id, name: part.name, type: part.type, cutWidth: totalInnerWidth, cutLength: 46 + totalInnerLength, flapSize: 0, colorClass: PART_COLORS[part.type], isStrip: true });
       }
-      // 3. AGREGAMOS EL CÁLCULO PARA EL REFUERZO
       else if (part.type === 'REINFORCEMENT') {
         const flap = part.customHeight || 3;
-        partsToCut.push({ 
-          partId: part.id, 
-          name: part.name, 
-          type: part.type, 
-          cutWidth: (totalInnerWidth - 0.1) + 2 * flap, 
-          cutLength: (totalInnerLength - 0.1) + 2 * flap, 
-          flapSize: flap, 
-          colorClass: PART_COLORS[part.type] 
-        });
+        partsToCut.push({ partId: part.id, name: part.name, type: part.type, cutWidth: (totalInnerWidth - 0.1) + 2 * flap, cutLength: (totalInnerLength - 0.1) + 2 * flap, flapSize: flap, colorClass: PART_COLORS[part.type] });
       }
     });
     setResults({ innerWidth: totalInnerWidth, innerLength: totalInnerLength, innerHeight, partsToCut });
@@ -398,7 +383,6 @@ export function BoxCalculator() {
   };
 
   const addPart = (type: PartType) => {
-    // 4. AÑADIMOS EL NOMBRE Y VALOR POR DEFECTO PARA EL REFUERZO
     const names: Record<PartType, string> = { BASE: 'Base', FULL_LID: 'Tapa', INTERNAL_LID: 'Tapa Interna', HOLDER: 'Portacafé', HANDLE: 'Agarrador', REINFORCEMENT: 'Base Refuerzo' };
     const newPart: BoxPartConfig = { id: `${type.toLowerCase()}-${Date.now()}`, type, name: names[type], targetProductIds: [] };
     
@@ -631,7 +615,6 @@ export function BoxCalculator() {
                     <option value="INTERNAL_LID">Tapa Interna</option>
                     <option value="HOLDER">Portacafé</option>
                     <option value="HANDLE">Agarrador</option>
-                    {/* 5. AÑADIMOS LA OPCIÓN EN EL SELECT */}
                     <option value="REINFORCEMENT">Base de Refuerzo</option>
                   </select>
                   <button onClick={() => { const sel = document.getElementById('part-selector') as HTMLSelectElement; addPart(sel.value as PartType); }} className="bg-zinc-800 hover:bg-zinc-700 p-2 rounded-lg text-white transition-colors"><Plus size={16} /></button>
@@ -656,7 +639,6 @@ export function BoxCalculator() {
                         </div>
                       )}
                       
-                      {/* 6. AÑADIMOS EL INPUT DE ALTO PARA EL REFUERZO */}
                       {part.type === 'REINFORCEMENT' && (
                         <div className="col-span-2 space-y-1">
                            <label className="text-[9px] font-black text-zinc-500 uppercase">Alto Refuerzo (cm)</label>
