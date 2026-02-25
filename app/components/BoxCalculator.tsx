@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { toPng } from 'html-to-image';
+import { jsPDF } from "jspdf";
 import { 
   Box, Ruler, Trash2, Save, FolderOpen, ChevronsRight, 
   ChevronsDown, Eraser, Layers, Scissors, Search,
   Cookie, Coffee, CupSoda, Sandwich, Dessert, Circle, Hash, Banknote,
-  Plus, MousePointer, CheckCircle2, LayoutTemplate, Edit2, Loader2
+  Plus, MousePointer, CheckCircle2, LayoutTemplate, Edit2, Loader2, Download, Printer
 } from "lucide-react";
 
 // --- IMPORTACIONES DE FIREBASE ---
-import { db } from "../lib/firebase"; // Ajusta la ruta si es necesario
+import { db } from "../lib/firebase"; 
 import { collection, getDocs, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 
 // --- TIPOS ---
@@ -39,6 +41,7 @@ function ProductIcon({ name, size = 16, className = "" }: { name?: string, size?
   return <IconComponent size={size} className={className} />;
 }
 
+// OPTIMIZACIÓN CON CÁLCULO DE RETAZOS
 function getOptimization(pw: number, pl: number) {
   if (pw <= 0 || pl <= 0) return null;
   const areaSheet = SHEET_W * SHEET_L;
@@ -51,34 +54,68 @@ function getOptimization(pw: number, pl: number) {
   const finalW = useRotated ? pl : pw, finalL = useRotated ? pw : pl;
   const countX = useRotated ? rx : nx, countY = useRotated ? ry : ny;
   const efficiency = ((bestTotal * pw * pl) / areaSheet) * 100;
-  return { bestTotal, useRotated, finalW, finalL, countX, countY, efficiency };
+  const wasteArea = areaSheet - (bestTotal * pw * pl);
+  return { bestTotal, useRotated, finalW, finalL, countX, countY, efficiency, wasteArea };
 }
 
 function SheetLayoutView({ pw, pl, colorClass }: { pw: number, pl: number, colorClass: string }) {
   const opt = getOptimization(pw, pl);
   if (!opt || opt.bestTotal === 0) return null;
   const svgScale = 2;
+
+  // Cálculo de los bloques de retazo sobrantes
+  const usedW = opt.countX * opt.finalW;
+  const usedL = opt.countY * opt.finalL;
+  const scrapB_w = SHEET_W;
+  const scrapB_l = SHEET_L - usedL;
+  const scrapR_w = SHEET_W - usedW;
+  const scrapR_l = usedL;
+
   return (
-    <div className="mt-4 p-4 bg-zinc-900 rounded-xl border border-zinc-700 shadow-2xl">
+    <div className="mt-4 p-4 bg-zinc-900 rounded-xl border border-zinc-700 shadow-2xl relative print-no-break">
       <div className="flex justify-between items-center mb-3">
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${colorClass.replace('text-', 'bg-')}`}></div>
-          <span className="text-[10px] font-black text-white uppercase tracking-widest">Pliego Optimizado (110x77)</span>
+          <span className="text-[10px] font-black text-white uppercase tracking-widest">Pliego (110x77)</span>
         </div>
         <span className="text-[10px] font-black text-green-400 bg-green-400/10 px-2 py-0.5 rounded">{opt.efficiency.toFixed(1)}% USO</span>
       </div>
       <div className="relative bg-black rounded border border-zinc-800 overflow-hidden">
         <svg viewBox={`0 0 ${SHEET_W * svgScale} ${SHEET_L * svgScale}`} className="w-full h-auto">
+          <defs>
+            <pattern id="stripes" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+              <rect width="2" height="8" fill="#ef4444" opacity="0.5" />
+            </pattern>
+          </defs>
           <rect width={SHEET_W * svgScale} height={SHEET_L * svgScale} fill="#09090b" />
+          
+          {/* Cajas Útiles */}
           {Array.from({ length: opt.countY }).map((_, y) => 
             Array.from({ length: opt.countX }).map((_, x) => (
               <rect key={`${x}-${y}`} x={x * opt.finalW * svgScale} y={y * opt.finalL * svgScale} width={opt.finalW * svgScale} height={opt.finalL * svgScale} className={`${colorClass.replace('text-', 'fill-')} opacity-40`} stroke="white" strokeWidth="0.5" />
             ))
           )}
+
+          {/* Retazo Inferior */}
+          {scrapB_l > 0 && (
+            <g>
+              <rect x={0} y={usedL * svgScale} width={scrapB_w * svgScale} height={scrapB_l * svgScale} fill="url(#stripes)" className="opacity-20" />
+              {scrapB_l > 4 && <text x={(scrapB_w * svgScale)/2} y={(usedL + scrapB_l/2) * svgScale} fill="#ef4444" className="font-mono font-bold text-[10px] opacity-80" textAnchor="middle" dominantBaseline="middle">Retazo: {scrapB_w.toFixed(1)} x {scrapB_l.toFixed(1)} cm</text>}
+            </g>
+          )}
+
+          {/* Retazo Derecho */}
+          {scrapR_w > 0 && (
+            <g>
+              <rect x={usedW * svgScale} y={0} width={scrapR_w * svgScale} height={scrapR_l * svgScale} fill="url(#stripes)" className="opacity-20" />
+              {scrapR_w > 4 && <text x={(usedW + scrapR_w/2) * svgScale} y={(scrapR_l * svgScale)/2} transform={`rotate(-90, ${(usedW + scrapR_w/2) * svgScale}, ${(scrapR_l * svgScale)/2})`} fill="#ef4444" className="font-mono font-bold text-[10px] opacity-80" textAnchor="middle" dominantBaseline="middle">Retazo: {scrapR_w.toFixed(1)} x {scrapR_l.toFixed(1)} cm</text>}
+            </g>
+          )}
         </svg>
       </div>
-      <div className="flex justify-between mt-3">
-        <p className="text-[10px] text-zinc-400 font-bold"><span className="text-white">{opt.bestTotal}</span> unidades / pliego</p>
+      <div className="flex justify-between mt-3 text-[10px] font-bold">
+        <p className="text-zinc-400"><span className="text-white">{opt.bestTotal}</span> unidades / pliego</p>
+        <p className="text-red-400">Desperdicio: {(opt.wasteArea / 10000).toFixed(2)} m²</p>
       </div>
     </div>
   );
@@ -86,21 +123,43 @@ function SheetLayoutView({ pw, pl, colorClass }: { pw: number, pl: number, color
 
 function PlanchaDiagram({ part }: { part: CutResult }) {
   const viewScale = 2;
+  const diagramRef = useRef<HTMLDivElement>(null);
   const { cutWidth: pw, cutLength: pl, flapSize: flap, name, colorClass, isStrip } = part;
   const width = pw - (flap * 2);
   const length = pl - (flap * 2);
 
+  const handleDownload = async () => {
+    if (!diagramRef.current) return;
+    try {
+      const dataUrl = await toPng(diagramRef.current, { 
+        backgroundColor: '#09090b', 
+        pixelRatio: 2 
+      });
+      const link = document.createElement('a');
+      link.download = `Corte-${name.replace(/\s+/g, '-')}-${pw.toFixed(0)}x${pl.toFixed(0)}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (error) {
+      console.error("Error exportando PNG:", error);
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-2 p-5 bg-zinc-800/30 rounded-2xl border border-zinc-700/50 shadow-lg">
+    <div ref={diagramRef} className="flex flex-col gap-2 p-5 bg-zinc-800/30 rounded-2xl border border-zinc-700/50 shadow-lg print-no-break">
       <div className="flex justify-between items-center mb-2">
         <p className={`text-[10px] font-black uppercase tracking-widest ${colorClass}`}>{name}</p>
-        <div className="bg-white/5 border border-white/10 px-3 py-1 rounded-full text-[11px] font-mono text-white flex items-center gap-2">
-          <Scissors size={14} className="text-zinc-500" />
-          <strong>{pw.toFixed(1)}</strong> x <strong>{pl.toFixed(1)}</strong> cm
+        <div className="flex items-center gap-2">
+          <button onClick={handleDownload} className="bg-blue-600 hover:bg-blue-500 text-white p-1.5 rounded-lg transition-colors shadow-lg" title="Descargar como PNG">
+            <Download size={14} />
+          </button>
+          <div className="bg-white/5 border border-white/10 px-3 py-1 rounded-full text-[11px] font-mono text-white flex items-center gap-2">
+            <Scissors size={14} className="text-zinc-500" />
+            <strong>{pw.toFixed(1)}</strong> x <strong>{pl.toFixed(1)}</strong> cm
+          </div>
         </div>
       </div>
       
-      <svg viewBox={`-60 -20 ${(pw * viewScale) + 80} ${(pl * viewScale) + 60}`} className={`w-full max-w-[280px] mx-auto h-auto ${colorClass} fill-current`}>
+      <svg viewBox={`-60 -20 ${(pw * viewScale) + 80} ${(pl * viewScale) + 60}`} className={`w-full max-w-[280px] mx-auto h-auto ${colorClass} fill-current mt-4 mb-2`}>
         <g className="opacity-30">
           {!isStrip && flap > 0 ? (
             <>
@@ -144,13 +203,16 @@ function PlanchaDiagram({ part }: { part: CutResult }) {
 
 export function BoxCalculator() {
   const SCALE = 8;
+  const printRef = useRef<HTMLDivElement>(null);
 
   const [loadingDb, setLoadingDb] = useState(true);
   const [productTemplates, setProductTemplates] = useState<ProductTemplate[]>([]);
   const [savedBoxes, setSavedBoxes] = useState<SavedBox[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [searchBoxTerm, setSearchBoxTerm] = useState(""); // NUEVO ESTADO PARA BUSCAR CAJAS
   const [currentBoxName, setCurrentBoxName] = useState("");
   const [currentBoxId, setCurrentBoxId] = useState<string | null>(null); 
+  const [isExporting, setIsExporting] = useState(false);
   
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(5);
@@ -160,6 +222,9 @@ export function BoxCalculator() {
   const [selectionMode, setSelectionMode] = useState<{ active: boolean, partId: string | null }>({ active: false, partId: null });
 
   const [productionQuantity, setProductionQuantity] = useState(10);
+  
+  const [showProductForm, setShowProductForm] = useState(false);
+  
   const [newProduct, setNewProduct] = useState({ id: "", name: "", width: "", length: "", height: "", icon: "default" });
   const [isEditingProduct, setIsEditingProduct] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ProductTemplate | null>(null);
@@ -187,7 +252,54 @@ export function BoxCalculator() {
     fetchFirestoreData();
   }, []);
 
+  // FILTRO PARA PRODUCTOS
   const filteredProducts = useMemo(() => productTemplates.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase())), [productTemplates, searchTerm]);
+  
+  // FILTRO PARA CAJAS GUARDADAS
+  const filteredBoxes = useMemo(() => savedBoxes.filter(box => box.name.toLowerCase().includes(searchBoxTerm.toLowerCase())), [savedBoxes, searchBoxTerm]);
+
+  const handleExportPDF = async () => {
+    if (!printRef.current || !results) return;
+    setIsExporting(true);
+    
+    try {
+      const canvas = await toPng(printRef.current, { 
+        backgroundColor: '#09090b',
+        pixelRatio: 2,
+        style: {
+          maxHeight: 'none', 
+          overflow: 'visible'
+        }
+      });
+      
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgProps = pdf.getImageProperties(canvas);
+      const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(canvas, 'PNG', 0, position, pdfWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(canvas, 'PNG', 0, position, pdfWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      pdf.save(`Reporte-${currentBoxName || 'Caja'}.pdf`);
+    } catch (error) {
+      console.error("Error generando PDF:", error);
+      alert("Hubo un error al generar el PDF.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const handleSaveBox = async () => {
     if (!currentBoxName) return alert("Nombra el diseño");
@@ -242,6 +354,7 @@ export function BoxCalculator() {
       }
       setNewProduct({ id: "", name: "", width: "", length: "", height: "", icon: "default" });
       setIsEditingProduct(false);
+      setShowProductForm(false);
     } catch (error) {
       console.error("Error guardando producto:", error);
     }
@@ -263,11 +376,10 @@ export function BoxCalculator() {
     e.stopPropagation();
     setNewProduct({ id: prod.id, name: prod.name, width: prod.width.toString(), length: prod.length.toString(), height: prod.height.toString(), icon: prod.icon || "default" });
     setIsEditingProduct(true);
+    setShowProductForm(true); 
   };
 
-  // --- MOTOR DE CÁLCULO FÍSICO CORREGIDO ---
   const { colWidths, rowLengths, totalInnerWidth, totalInnerLength, maxHeight } = useMemo(() => {
-    // 1. Cálculo de pistas para el grid visual
     const widths = Array(cols).fill(0); const lengths = Array(rows).fill(0);
     placedProducts.forEach(p => {
       const wPerCol = p.template.width / p.colSpan;
@@ -276,30 +388,23 @@ export function BoxCalculator() {
       for (let i = 0; i < p.rowSpan; i++) if (p.row + i < rows) lengths[p.row + i] = Math.max(lengths[p.row + i], lPerRow);
     });
 
-    // 2. Cálculo matemático estricto de la Caja Fáctica (sin superponer anchos/largos innecesarios)
     let maxPhysicalLength = 0;
     for (let c = 0; c < cols; c++) {
       let colSum = 0;
-      placedProducts.forEach(p => {
-        if (c >= p.col && c < p.col + p.colSpan) colSum += p.template.length; 
-      });
+      placedProducts.forEach(p => { if (c >= p.col && c < p.col + p.colSpan) colSum += p.template.length; });
       if (colSum > maxPhysicalLength) maxPhysicalLength = colSum;
     }
 
     let maxPhysicalWidth = 0;
     for (let r = 0; r < rows; r++) {
       let rowSum = 0;
-      placedProducts.forEach(p => {
-        if (r >= p.row && r < p.row + p.rowSpan) rowSum += p.template.width;
-      });
+      placedProducts.forEach(p => { if (r >= p.row && r < p.row + p.rowSpan) rowSum += p.template.width; });
       if (rowSum > maxPhysicalWidth) maxPhysicalWidth = rowSum;
     }
 
     return { 
-      colWidths: widths, 
-      rowLengths: lengths, 
-      totalInnerWidth: maxPhysicalWidth, 
-      totalInnerLength: maxPhysicalLength, 
+      colWidths: widths, rowLengths: lengths, 
+      totalInnerWidth: maxPhysicalWidth, totalInnerLength: maxPhysicalLength, 
       maxHeight: Math.max(0, ...placedProducts.map(p => p.template.height), 0) 
     };
   }, [placedProducts, rows, cols]);
@@ -321,22 +426,16 @@ export function BoxCalculator() {
       else if (part.type === 'INTERNAL_LID') {
         const targets = placedProducts.filter(p => part.targetProductIds.includes(p.instanceId));
         let boxW = totalInnerWidth;
-        
-        // Lógica corregida para el ancho de la Tapa Interna
         if (targets.length > 0) {
           let maxTargetWidth = 0;
           for (let r = 0; r < rows; r++) {
             let rowSum = 0;
-            targets.forEach(p => {
-              if (r >= p.row && r < p.row + p.rowSpan) rowSum += p.template.width;
-            });
+            targets.forEach(p => { if (r >= p.row && r < p.row + p.rowSpan) rowSum += p.template.width; });
             if (rowSum > maxTargetWidth) maxTargetWidth = rowSum;
           }
           boxW = maxTargetWidth;
         }
-
-        const cutL = totalInnerLength - 0.2; 
-        const flap = innerHeight - 0.1;
+        const cutL = totalInnerLength - 0.2; const flap = innerHeight - 0.1;
         partsToCut.push({ partId: part.id, name: part.name, type: part.type, cutWidth: boxW + 2 * flap, cutLength: cutL + 2 * flap, flapSize: flap, colorClass: PART_COLORS[part.type] });
       }
       else if (part.type === 'HOLDER') {
@@ -419,17 +518,30 @@ export function BoxCalculator() {
         </div>
       </header>
 
-      {/* SECCIÓN DE DISEÑOS GUARDADOS EN LA NUBE */}
+      {/* SECCIÓN DE DISEÑOS GUARDADOS EN LA NUBE CON BUSCADOR */}
       <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 shadow-sm space-y-4 mb-8">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xs font-black uppercase text-amber-500 tracking-[0.2em] flex items-center gap-2"><FolderOpen size={16} /> Mis Proyectos en la Nube</h2>
-          <span className="text-[10px] font-bold bg-amber-500/10 text-amber-500 px-2 py-1 rounded-full">{savedBoxes.length}</span>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <h2 className="text-xs font-black uppercase text-amber-500 tracking-[0.2em] flex items-center gap-2"><FolderOpen size={16} /> Mis Proyectos</h2>
+            <span className="text-[10px] font-bold bg-amber-500/10 text-amber-500 px-2 py-1 rounded-full">{savedBoxes.length}</span>
+          </div>
+          {/* NUEVO INPUT DE BÚSQUEDA PARA CAJAS */}
+          <div className="relative w-full md:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
+            <input 
+              type="text" 
+              placeholder="BUSCAR PROYECTO..." 
+              value={searchBoxTerm} 
+              onChange={(e) => setSearchBoxTerm(e.target.value)} 
+              className="w-full pl-9 pr-4 py-2 bg-black border border-zinc-800 rounded-xl text-xs font-bold outline-none focus:border-amber-500 transition-all uppercase text-white" 
+            />
+          </div>
         </div>
         <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-          {savedBoxes.length === 0 ? (
-            <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest">No hay diseños guardados</p>
+          {filteredBoxes.length === 0 ? (
+            <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest">No hay diseños que coincidan</p>
           ) : (
-            savedBoxes.map((box) => (
+            filteredBoxes.map((box) => (
               <div key={box.id} className={`group relative min-w-[200px] flex flex-col p-4 rounded-2xl border transition-all cursor-pointer ${currentBoxId === box.id ? 'bg-amber-500/10 border-amber-500' : 'bg-black border-zinc-800 hover:border-amber-500/50'}`}>
                 <div className="flex justify-between items-start mb-2">
                   <div onClick={() => loadBox(box)} className="flex-1">
@@ -497,7 +609,7 @@ export function BoxCalculator() {
             <h2 className="text-xs font-black uppercase text-blue-500 tracking-[0.2em] flex items-center gap-2"><FolderOpen size={16} /> Biblioteca de Productos</h2>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
-              <input type="text" placeholder="BUSCAR..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-black border border-zinc-800 rounded-xl text-xs font-bold outline-none focus:border-blue-600 transition-all uppercase" />
+              <input type="text" placeholder="BUSCAR PRODUCTO..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-black border border-zinc-800 rounded-xl text-xs font-bold outline-none focus:border-blue-600 transition-all uppercase" />
             </div>
             <div className="grid grid-cols-1 gap-3 max-h-60 overflow-y-auto pr-2 scrollbar-hide">
               {filteredProducts.map(t => (
@@ -518,35 +630,45 @@ export function BoxCalculator() {
             </div>
           </div>
 
-          <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 shadow-sm">
-            <div className="flex justify-between items-center mb-6">
-               <h2 className="text-xs font-black uppercase text-zinc-500 tracking-[0.2em]">{isEditingProduct ? "Editar Producto" : "Nuevo Producto"}</h2>
-               {isEditingProduct && <button onClick={() => { setIsEditingProduct(false); setNewProduct({ id: "", name: "", width: "", length: "", height: "", icon: "default" }); }} className="text-[10px] text-zinc-500 hover:text-white uppercase font-black">Cancelar</button>}
-            </div>
-            <div className="space-y-4">
-              <input type="text" placeholder="NOMBRE..." value={newProduct.name} onChange={e => setNewProduct({ ...newProduct, name: e.target.value })} className="w-full p-4 rounded-2xl bg-black border border-zinc-800 text-sm font-bold outline-none uppercase" />
-              <div className="grid grid-cols-3 gap-3">
-                {['Ancho', 'Largo', 'Alto'].map((label, i) => (
-                  <div key={label} className="space-y-2 text-center">
-                    <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest">{label}</span>
-                    <input type="number" step="0.1" value={[newProduct.width, newProduct.length, newProduct.height][i]} onChange={e => {
-                      const keys = ["width", "length", "height"] as const;
-                      setNewProduct({ ...newProduct, [keys[i]]: e.target.value });
-                    }} className="w-full p-3 rounded-xl bg-black border border-zinc-800 text-xs text-center font-black" />
-                  </div>
-                ))}
+          {/* BOTÓN O FORMULARIO DE NUEVO PRODUCTO */}
+          {!showProductForm && !isEditingProduct ? (
+            <button 
+              onClick={() => setShowProductForm(true)} 
+              className="w-full bg-zinc-900 border border-zinc-800 p-4 rounded-3xl text-xs font-black uppercase text-blue-500 hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-2 shadow-sm"
+            >
+              <Plus size={16} /> Crear Nuevo Producto
+            </button>
+          ) : (
+            <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 shadow-sm animate-in slide-in-from-top-2">
+              <div className="flex justify-between items-center mb-6">
+                 <h2 className="text-xs font-black uppercase text-zinc-500 tracking-[0.2em]">{isEditingProduct ? "Editar Producto" : "Nuevo Producto"}</h2>
+                 <button onClick={() => { setIsEditingProduct(false); setShowProductForm(false); setNewProduct({ id: "", name: "", width: "", length: "", height: "", icon: "default" }); }} className="text-[10px] text-zinc-500 hover:text-white uppercase font-black">Cancelar</button>
               </div>
-              <div className="space-y-2">
-                <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest block text-center">Icono</span>
-                <select value={newProduct.icon} onChange={e => setNewProduct({ ...newProduct, icon: e.target.value })} className="w-full p-3 bg-black border border-zinc-800 rounded-xl text-xs font-bold outline-none uppercase text-zinc-400">
-                  {Object.keys(ICON_MAP).map(iconName => <option key={iconName} value={iconName}>{iconName.toUpperCase()}</option>)}
-                </select>
+              <div className="space-y-4">
+                <input type="text" placeholder="NOMBRE..." value={newProduct.name} onChange={e => setNewProduct({ ...newProduct, name: e.target.value })} className="w-full p-4 rounded-2xl bg-black border border-zinc-800 text-sm font-bold outline-none uppercase" />
+                <div className="grid grid-cols-3 gap-3">
+                  {['Ancho', 'Largo', 'Alto'].map((label, i) => (
+                    <div key={label} className="space-y-2 text-center">
+                      <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest">{label}</span>
+                      <input type="number" step="0.1" value={[newProduct.width, newProduct.length, newProduct.height][i]} onChange={e => {
+                        const keys = ["width", "length", "height"] as const;
+                        setNewProduct({ ...newProduct, [keys[i]]: e.target.value });
+                      }} className="w-full p-3 rounded-xl bg-black border border-zinc-800 text-xs text-center font-black" />
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                  <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest block text-center">Icono</span>
+                  <select value={newProduct.icon} onChange={e => setNewProduct({ ...newProduct, icon: e.target.value })} className="w-full p-3 bg-black border border-zinc-800 rounded-xl text-xs font-bold outline-none uppercase text-zinc-400">
+                    {Object.keys(ICON_MAP).map(iconName => <option key={iconName} value={iconName}>{iconName.toUpperCase()}</option>)}
+                  </select>
+                </div>
+                <button onClick={handleSaveProduct} className={`w-full p-4 rounded-2xl text-xs font-black uppercase tracking-[0.15em] transition-all shadow-lg ${isEditingProduct ? 'bg-amber-500 text-black hover:bg-amber-400' : 'bg-zinc-100 text-black hover:bg-white'}`}>
+                  {isEditingProduct ? "ACTUALIZAR NUBE" : "GUARDAR EN NUBE"}
+                </button>
               </div>
-              <button onClick={handleSaveProduct} className={`w-full p-4 rounded-2xl text-xs font-black uppercase tracking-[0.15em] transition-all shadow-lg ${isEditingProduct ? 'bg-amber-500 text-black hover:bg-amber-400' : 'bg-zinc-100 text-black hover:bg-white'}`}>
-                {isEditingProduct ? "ACTUALIZAR NUBE" : "GUARDAR EN NUBE"}
-              </button>
             </div>
-          </div>
+          )}
         </div>
 
         {/* COLUMNA DERECHA */}
@@ -688,17 +810,43 @@ export function BoxCalculator() {
               </div>
             </div>
 
-            <div className="bg-zinc-900 p-8 rounded-[2rem] shadow-2xl border border-zinc-800">
+            {/* SECCIÓN DEL REPORTE FINAL (REFERENCIADO PARA EL PDF) */}
+            <div className="bg-zinc-900 p-8 rounded-[2rem] shadow-2xl border border-zinc-800 relative">
               {results ? (
                 <>
-                  <div className="border-b border-zinc-800 pb-6 mb-6">
-                    <p className="text-[10px] uppercase font-black text-zinc-500 tracking-widest mb-2">Medida Útil Caja (Inner)</p>
-                    <p className="font-mono text-2xl font-black leading-none text-white">{results.innerWidth.toFixed(1)} × {results.innerLength.toFixed(1)} × {results.innerHeight.toFixed(1)} <span className="text-xs text-blue-500">CM</span></p>
+                  <div className="flex justify-between items-start border-b border-zinc-800 pb-6 mb-6">
+                    <div>
+                      <p className="text-[10px] uppercase font-black text-zinc-500 tracking-widest mb-2">Medida Útil Caja (Inner)</p>
+                      <p className="font-mono text-2xl font-black leading-none text-white">{results.innerWidth.toFixed(1)} × {results.innerLength.toFixed(1)} × {results.innerHeight.toFixed(1)} <span className="text-xs text-blue-500">CM</span></p>
+                    </div>
+                    <button 
+                      onClick={handleExportPDF} 
+                      disabled={isExporting}
+                      className="bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-50"
+                    >
+                      {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />}
+                      Exportar PDF
+                    </button>
                   </div>
-                  <div className="grid grid-cols-1 gap-6 overflow-y-auto max-h-[500px] pr-2 scrollbar-hide">
-                    {results.partsToCut.map(cutResult => (
-                      <PlanchaDiagram key={cutResult.partId} part={cutResult} />
-                    ))}
+                  
+                  {/* CONTENEDOR QUE SE EXPORTARÁ A PDF */}
+                  <div ref={printRef} className="bg-zinc-950 p-6 rounded-2xl">
+                    {/* Título solo visible en el PDF */}
+                    <div className="mb-8 border-b border-zinc-800 pb-4">
+                      <h1 className="text-2xl font-black text-white uppercase tracking-wider">{currentBoxName || "Proyecto Sin Nombre"}</h1>
+                      <div className="flex gap-4 mt-2">
+                         <span className="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-1 rounded">Base Útil: {results.innerWidth.toFixed(1)} × {results.innerLength.toFixed(1)} × {results.innerHeight.toFixed(1)} CM</span>
+                         {productionSummary && <span className="text-xs font-mono text-amber-400 bg-amber-400/10 px-2 py-1 rounded">Fabricar: {productionQuantity} uds</span>}
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 gap-8">
+                      {results.partsToCut.map(cutResult => (
+                        <div key={cutResult.partId} className="break-inside-avoid">
+                          <PlanchaDiagram part={cutResult} />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </>
               ) : (
